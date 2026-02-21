@@ -1,15 +1,32 @@
 const express = require("express");
 const { Pool } = require("pg");
+const redis = require("redis");
+const cors = require("cors");
 const path = require("path");
 
 const app = express();
 app.use(express.json());
+app.use(cors());
+
+// Redis client (non-blocking — app works without Redis)
+const redisClient = redis.createClient({
+  socket: {
+    host: process.env.REDIS_HOST || "redis",
+    port: parseInt(process.env.REDIS_PORT || "6379"),
+  },
+});
+redisClient.on("error", (err) => console.warn("Redis error (non-fatal):", err.message));
+redisClient.connect().catch((err) => console.warn("Redis connect failed (non-fatal):", err.message));
 
 // Serve built frontend
 app.use(express.static(path.join(__dirname, "client/dist")));
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@postgres:5432/reddamaten",
+  host: process.env.POSTGRES_HOST || "postgres",
+  port: parseInt(process.env.POSTGRES_PORT || "5432"),
+  user: process.env.POSTGRES_USER || "postgres",
+  password: process.env.POSTGRES_PASSWORD || "postgres",
+  database: process.env.POSTGRES_DB || "postgres",
 });
 
 // Run migrations on startup
@@ -93,8 +110,23 @@ async function migrate() {
   }
 }
 
-// Health check
-app.get("/health", (req, res) => res.json({ status: "ok", timestamp: new Date() }));
+// Health check (SAAC standard endpoint)
+const startTime = Date.now();
+app.get("/health", (req, res) => res.json({
+  status: "ok",
+  commit: process.env.SOURCE_COMMIT || "unknown",
+  uptime: Math.floor((Date.now() - startTime) / 1000),
+  timestamp: new Date()
+}));
+
+// API health check (PO required endpoint)
+app.get("/api/health", (req, res) => res.json({
+  status: "ok",
+  service: "reddamaten-api",
+  commit: process.env.SOURCE_COMMIT || "unknown",
+  uptime: Math.floor((Date.now() - startTime) / 1000),
+  timestamp: new Date()
+}));
 
 // GET /api/items — all available items with merchant info
 app.get("/api/items", async (req, res) => {

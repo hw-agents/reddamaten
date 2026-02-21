@@ -1,24 +1,44 @@
-version: "3.8"
+# ReddaMaten Application Stack — PRODUCTION container
+# See SAAC_DEPLOYMENT.md for deployment rules.
+#
+# Key rules:
+#   1. Use "expose", NEVER "ports" — Traefik handles routing
+#   2. Database host = service name ("postgres"), NEVER "localhost"
+#   3. Do NOT add Traefik labels — SAAC uses file provider
+#   4. Keep SOURCE_COMMIT arg for /health endpoint commit tracking
 
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        SOURCE_COMMIT: ${SOURCE_COMMIT:-dev}
     expose:
       - "3000"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/reddamaten
+      - NODE_ENV=production
       - PORT=3000
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=postgres
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SOURCE_COMMIT=${SOURCE_COMMIT:-dev}
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
 
   postgres:
-    image: postgres:15-alpine
+    image: postgis/postgis:15-3.4-alpine
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=reddamaten
+      - POSTGRES_DB=postgres
     expose:
       - "5432"
     volumes:
@@ -30,5 +50,19 @@ services:
       retries: 10
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  redis_data:
