@@ -119,14 +119,38 @@ app.get("/health", (req, res) => res.json({
   timestamp: new Date()
 }));
 
-// API health check (PO required endpoint)
-app.get("/api/health", (req, res) => res.json({
-  status: "ok",
-  service: "reddamaten-api",
-  commit: process.env.SOURCE_COMMIT || "unknown",
-  uptime: Math.floor((Date.now() - startTime) / 1000),
-  timestamp: new Date()
-}));
+// API health check — verifies DB and Redis connectivity
+app.get("/api/health", async (req, res) => {
+  const checks = { db: "unknown", redis: "unknown" };
+
+  try {
+    await pool.query("SELECT 1");
+    checks.db = "ok";
+  } catch (e) {
+    checks.db = "error";
+  }
+
+  try {
+    if (redisClient.isReady) {
+      await redisClient.ping();
+      checks.redis = "ok";
+    } else {
+      checks.redis = "unavailable";
+    }
+  } catch (e) {
+    checks.redis = "error";
+  }
+
+  const allOk = checks.db === "ok";
+  res.status(allOk ? 200 : 503).json({
+    status: allOk ? "ok" : "degraded",
+    service: "reddamaten-api",
+    commit: process.env.SOURCE_COMMIT || "unknown",
+    uptime: Math.floor((Date.now() - startTime) / 1000),
+    checks,
+    timestamp: new Date()
+  });
+});
 
 // GET /api/items — all available items with merchant info
 app.get("/api/items", async (req, res) => {
